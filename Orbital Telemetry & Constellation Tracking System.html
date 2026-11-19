@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AETHER-3500 | SGP4 Orbital Constellation Telemetry & Spherical Tracking System</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Satellite.js (SGP4/SDP4 Orbital Propagation Engine) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/5.0.0/satellite.min.js"></script>
+  
+  <!-- Three.js (3D Spherical WebGL Engine) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            obsidian: '#05080f',
+            panel: '#0a101d',
+            borderline: '#1b2840',
+            cyanaccent: '#00f0ff',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #04070d;
+      color: #e2e8f0;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    /* Custom Aerospace Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #060b14;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e2d4a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #00f0ff;
+    }
+
+    /* Glassmorphism HUD styling */
+    .hud-glass {
+      background: rgba(9, 15, 28, 0.86);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+    }
+
+    .hud-card {
+      background: rgba(13, 21, 38, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .hud-card:hover {
+      border-color: rgba(0, 240, 255, 0.45);
+      background: rgba(18, 30, 54, 0.92);
+    }
+
+    .hud-card.active-sat {
+      border-color: #ff2a85;
+      background: linear-gradient(135deg, rgba(255, 42, 133, 0.16) 0%, rgba(13, 21, 38, 0.95) 100%);
+      box-shadow: 0 0 20px rgba(255, 42, 133, 0.25);
+    }
+
+    /* Animated Pulse Beacon */
+    @keyframes radarPulse {
+      0% { transform: scale(0.95); opacity: 0.9; }
+      50% { transform: scale(1.15); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.9; }
+    }
+    .pulse-beacon {
+      animation: radarPulse 2s infinite ease-in-out;
+    }
+
+    /* Subtle Scanline Overlay */
+    .scanlines {
+      background: linear-gradient(
+        to bottom,
+        rgba(255,255,255,0),
+        rgba(255,255,255,0) 50%,
+        rgba(0, 240, 255, 0.015) 50%,
+        rgba(0, 240, 255, 0.015)
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    /* Virtual List Viewport */
+    #sat-list-viewport {
+      position: relative;
+      overflow-y: auto;
+      height: 100%;
+      will-change: transform;
+    }
+
+    /* Monospace tabular numerals for zero jitter during 11s updates */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col overflow-hidden bg-[#04070d]">
+
+  <!-- Top Aerospace Command Bar -->
+  <header class="h-14 border-b border-slate-800/90 bg-[#070c17]/95 px-3 md:px-5 flex items-center justify-between z-30 shrink-0">
+    <!-- Left Branding & System Status -->
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center relative">
+        <div class="w-2.5 h-2.5 rounded-full bg-cyan-400 pulse-beacon"></div>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm md:text-base font-bold tracking-wider text-white uppercase">AETHER-3500 <span class="text-cyan-400 font-mono text-xs font-normal hidden sm:inline">// SGP4 ORBITAL TELEMETRY</span></h1>
+          <span class="px-1.5 py-0.5 text-[10px] font-mono rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">LIVE SGP4</span>
+        </div>
+        <p class="text-[11px] text-slate-400 font-mono hidden md:block">3,500 ACTIVE SPACECRAFT • GEODETIC WGS-84 SPHERICAL PROJECTION • OBSERVER: 49.28°N, 123.12°W</p>
+      </div>
+    </div>
+
+    <!-- Center / Right 11-Second Telemetry Cycle & Actions -->
+    <div class="flex items-center gap-2 md:gap-4">
+      <!-- 11-Second Propagation Countdown Widget -->
+      <div class="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700/70">
+        <div class="flex flex-col">
+          <div class="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-400">
+            <span>11s SGP4 EPOCH SYNC</span>
+            <span id="countdown-text" class="text-cyan-400 font-bold tabular-nums">11.0s</span>
+          </div>
+          <div class="w-28 sm:w-36 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-1">
+            <div id="countdown-bar" class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-100" style="width: 100%;"></div>
+          </div>
+        </div>
+        <button id="btn-force-refresh" title="Force Immediate SGP4 Propagation" class="p-1.5 rounded-md bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition active:scale-95">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        </button>
+      </div>
+
+      <!-- UTC Epoch Clock -->
+      <div class="hidden xl:flex flex-col items-end font-mono text-[11px]">
+        <span id="utc-clock" class="text-slate-200 font-semibold tabular-nums">2026-11-19 06:16:00 UTC</span>
+        <span id="epoch-counter" class="text-slate-500 text-[10px] tabular-nums">PROPAGATION CYCLE #1</span>
+      </div>
+
+      <!-- Theoretical Monograph Button -->
+      <button id="btn-open-theory" class="px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-400/35 text-xs font-medium flex items-center gap-1.5 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+        <span class="hidden sm:inline">Orbital Monograph</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Split Workspace: Left/Center 3D Spherical Display + Right Scrollable Telemetry Side Panel -->
+  <main class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+    
+    <!-- LEFT / CENTER: 3D Spherical Constellation Display -->
+    <section id="globe-container" class="relative flex-1 h-[52vh] lg:h-full bg-[#03060c] overflow-hidden">
+      <!-- WebGL Canvas -->
+      <canvas id="orbital-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+      <div class="scanlines absolute inset-0"></div>
+
+      <!-- Top-Left Constellation Legend & Filter Pills -->
+      <div class="absolute top-3 left-3 z-20 max-w-[calc(100%-24px)] flex flex-wrap gap-1.5 pointer-events-auto">
+        <button data-constellation="ALL" class="const-filter-btn active px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold bg-cyan-500/25 text-cyan-200 border border-cyan-400/60 shadow-sm transition">
+          ALL (3,500)
+        </button>
+        <button data-constellation="Starlink / Starlynx" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#00f0ff]"></span>Starlink/Starlynx (1,250)
+        </button>
+        <button data-constellation="NASA" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#3b82f6]"></span>NASA (320)
+        </button>
+        <button data-constellation="Telus" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#10b981]"></span>Telus (240)
+        </button>
+        <button data-constellation="Rogers" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#ef4444]"></span>Rogers (240)
+        </button>
+        <button data-constellation="Bell" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#60a5fa]"></span>Bell (250)
+        </button>
+        <button data-constellation="Godiousa" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#f59e0b]"></span>Godiousa (420)
+        </button>
+        <button data-constellation="Huawei / Huwiea" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#f43f5e]"></span>Huawei/Huwiea (380)
+        </button>
+        <button data-constellation="Russian Nostrous" class="const-filter-btn px-2 py-1 rounded-md text-[11px] font-mono bg-slate-900/85 hover:bg-slate-800 text-slate-300 border border-slate-700/80 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-[#a855f7]"></span>Russian Nostrous (400)
+        </button>
+      </div>
+
+      <!-- Bottom-Left Spherical Attitude & Rotational Controls -->
+      <div class="absolute bottom-3 left-3 z-20 hud-glass rounded-xl p-2.5 flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-1 border-r border-slate-700/70 pr-2">
+          <button id="rot-up" title="Pitch Up" class="p-1.5 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 hover:text-cyan-300 border border-slate-700 transition">▲</button>
+          <button id="rot-down" title="Pitch Down" class="p-1.5 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 hover:text-cyan-300 border border-slate-700 transition">▼</button>
+          <button id="rot-left" title="Yaw Left" class="p-1.5 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 hover:text-cyan-300 border border-slate-700 transition">◀</button>
+          <button id="rot-right" title="Yaw Right" class="p-1.5 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 hover:text-cyan-300 border border-slate-700 transition">▶</button>
+          <button id="rot-invert" title="Invert Polarity (North/South Flip)" class="px-2 py-1.5 rounded bg-slate-800/90 hover:bg-amber-500/20 text-amber-300 border border-slate-700 text-[11px] font-mono transition">⇅ INVERT</button>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button id="zoom-in" title="Zoom In" class="px-2 py-1 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 border border-slate-700 font-mono text-xs">+</button>
+          <button id="zoom-out" title="Zoom Out" class="px-2 py-1 rounded bg-slate-800/90 hover:bg-cyan-500/20 text-slate-200 border border-slate-700 font-mono text-xs">−</button>
+          <button id="toggle-autorotate" class="px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-mono text-[11px] transition">AUTO-SPIN: ON</button>
+          <button id="toggle-shells" class="px-2.5 py-1 rounded bg-slate-800/90 text-slate-300 border border-slate-700 font-mono text-[11px] transition">SHELLS: ON</button>
+          <button id="reset-view" class="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 font-mono text-[11px] transition">RESET</button>
+        </div>
+      </div>
+
+      <!-- Bottom-Right Spherical Telemetry HUD Readout -->
+      <div class="hidden sm:flex absolute bottom-3 right-3 z-20 hud-glass rounded-xl px-3 py-2 flex-col items-end font-mono text-[10px] text-slate-400">
+        <div>VISIBLE NODES: <span id="hud-visible-count" class="text-cyan-300 font-bold">3,500</span> / 3,500</div>
+        <div>SPHERICAL ATTITUDE: <span id="hud-attitude" class="text-slate-200">PITCH 18.0° | YAW 0.0°</span></div>
+        <div>ORBITAL SHELLS: <span class="text-emerald-400">LEO (550km) • MEO (20,200km) • GEO (35,786km)</span></div>
+      </div>
+
+      <!-- FLOATING POP-UP TELEMETRY CARD (Anchored to Clicked / Selected Satellite Dot) -->
+      <div id="sat-popup" class="hidden absolute z-30 w-80 sm:w-96 hud-glass rounded-xl border border-pink-500/60 shadow-[0_0_35px_rgba(255,42,133,0.35)] overflow-hidden transition-opacity duration-150">
+        <!-- Pop-up Header -->
+        <div class="bg-gradient-to-r from-pink-600/30 via-slate-900/90 to-cyan-900/30 px-3.5 py-2.5 border-b border-pink-500/30 flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#ff2a85] animate-ping shrink-0"></span>
+            <div class="truncate">
+              <div id="pop-name" class="text-xs font-bold text-white font-mono truncate">STARLINK-4012</div>
+              <div id="pop-constellation" class="text-[10px] text-pink-300 font-mono truncate">Starlink / Starlynx • NORAD #54012</div>
+            </div>
+          </div>
+          <button id="btn-close-popup" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+
+        <!-- Pop-up 21 Attributes Compact Grid -->
+        <div id="pop-attributes-grid" class="p-3 max-h-64 overflow-y-auto grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] font-mono">
+          <!-- Dynamically populated with all 21 attributes -->
+        </div>
+
+        <!-- Pop-up Footer -->
+        <div class="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
+          <span>BEACON LOCK: <span class="text-pink-400 font-semibold">ACTIVE</span></span>
+          <button id="btn-locate-in-panel" class="text-cyan-400 hover:underline">SCROLL IN PANEL →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT SIDE PANEL: Scrollable 3,500 Satellite Directory with 21 Attributes Each -->
+    <aside class="w-full lg:w-[460px] xl:w-[510px] h-[48vh] lg:h-full bg-[#070c17] border-t lg:border-t-0 lg:border-l border-slate-800/90 flex flex-col z-20 shrink-0">
+      
+      <!-- Side Panel Search & Constellation Dropdown Header -->
+      <div class="p-3 border-b border-slate-800/90 bg-[#09101f] space-y-2 shrink-0">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold tracking-wider uppercase text-slate-200 flex items-center gap-2">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+            CONSTELLATION TELEMETRY MATRIX
+          </span>
+          <span id="panel-count-badge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 tabular-nums">3,500 SATELLITES</span>
+        </div>
+
+        <div class="flex gap-2">
+          <div class="relative flex-1">
+            <input id="sat-search-input" type="text" placeholder="Search NORAD ID, Name, COSPAR, Regime..." class="w-full bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none transition" />
+            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
+          <select id="panel-const-select" class="bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none">
+            <option value="ALL">All Constellations</option>
+            <option value="Starlink / Starlynx">Starlink / Starlynx</option>
+            <option value="NASA">NASA</option>
+            <option value="Telus">Telus</option>
+            <option value="Rogers">Rogers</option>
+            <option value="Bell">Bell</option>
+            <option value="Godiousa">Godiousa</option>
+            <option value="Huawei / Huwiea">Huawei / Huwiea</option>
+            <option value="Russian Nostrous">Russian Nostrous</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Virtualized Scrollable List of 3,500 Satellites (Each displaying all 21 Attributes) -->
+      <div id="sat-list-viewport" class="flex-1 overflow-y-auto px-2.5 py-2">
+        <div id="sat-list-spacer" class="relative w-full">
+          <div id="sat-list-items" class="absolute top-0 left-0 w-full space-y-2.5"></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- PROFESSOR-LEVEL THEORETICAL MONOGRAPH MODAL / DRAWER -->
+  <div id="theory-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="hud-glass w-full max-w-4xl max-h-[88vh] rounded-2xl border border-cyan-500/40 flex flex-col overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <span class="text-[10px] font-mono uppercase tracking-widest text-cyan-400">Aerospace Astrodynamics & Orbital Telemetry Monograph</span>
+          <h2 class="text-lg font-bold text-white">SGP4 Perturbation Theory & Spherical Constellation Geodesy</h2>
+        </div>
+        <button id="btn-close-theory" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">✕</button>
+      </div>
+      
+      <div class="p-6 overflow-y-auto space-y-5 text-sm text-slate-300 leading-relaxed">
+        <section>
+          <h3 class="text-cyan-300 font-mono font-semibold text-xs uppercase tracking-wider mb-1.5">1. Simplified General Perturbations (SGP4 / SDP4) Propagator</h3>
+          <p>
+            Unlike idealized two-body Keplerian motion governed strictly by $\ddot{\mathbf{r}} = -\frac{\mu}{r^3}\mathbf{r}$, artificial Earth satellites experience secular and periodic orbital perturbations. This system utilizes <strong>satellite.js</strong> implementing the NORAD SGP4/SDP4 analytical perturbation model. SGP4 accounts for Earth's oblateness zonal harmonics ($J_2, J_3, J_4$) which induce nodal regression ($\dot{\Omega}$) and apsidal precession ($\dot{\omega}$), atmospheric drag modeled via the ballistic coefficient $B^*$, and deep-space lunar-solar gravitational resonance for MEO/GEO regimes.
+          </p>
+        </section>
+
+        <section>
+          <h3 class="text-cyan-300 font-mono font-semibold text-xs uppercase tracking-wider mb-1.5">2. Reference Frame Transformations: TEME → ECEF → WGS-84 Geodetic</h3>
+          <p>
+            At each 11-second telemetry epoch $t$, SGP4 outputs state vectors $\mathbf{r}_{\text{TEME}}$ and $\mathbf{v}_{\text{TEME}}$ in the True Equator, Mean Equinox (TEME) inertial frame. To project each spacecraft accurately onto the rotating spherical Earth grid, the engine computes Greenwich Mean Sidereal Time ($\theta_{\text{GMST}}$) and rotates coordinates into Earth-Centered, Earth-Fixed (ECEF) space before solving Bowring's iterative geodetic transformation for WGS-84 latitude ($\phi$), longitude ($\lambda$), and ellipsoidal altitude ($h$).
+          </p>
+        </section>
+
+        <section>
+          <h3 class="text-cyan-300 font-mono font-semibold text-xs uppercase tracking-wider mb-1.5">3. Multi-Constellation Walker-Delta & Hybrid Shell Architecture (N = 3,500)</h3>
+          <p>
+            The 3,500 tracked space objects span eight operational architectures across Low Earth Orbit (LEO, 400–1,200 km), Medium Earth Orbit (MEO, 8,000–20,200 km), and Geostationary/Inclined Geosynchronous belts (GEO/IGSO, 35,786 km):
+          </p>
+          <ul class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 font-mono text-xs">
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#00f0ff]">● Starlink / Starlynx (1,250):</span> Walker-Delta 53°–97.6° LEO broadband shells.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#3b82f6]">● NASA EOS / Science (320):</span> Sun-synchronous (98.2°) Earth observation & climate nodes.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#10b981]">● Telus Orbital (240):</span> High-latitude Canadian LEO/MEO backhaul relay constellation.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#ef4444]">● Rogers SpaceNet (240):</span> Hybrid LEO-GEO direct-to-cell & maritime telemetry network.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#60a5fa]">● Bell / Telesat Lightspeed (250):</span> Polar & inclined Ka-band optical mesh constellation.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#f59e0b]">● Godiousa Defense (420):</span> Multi-plane MEO PNT & HEO early-warning surveillance.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#f43f5e]">● Huawei / Huwiea (380):</span> Low-inclination equatorial & global IoT laser-link swarm.</li>
+            <li class="p-2 rounded bg-slate-900/90 border border-slate-800"><span class="text-[#a855f7]">● Russian Nostrous (400):</span> High-inclination 64.8° GLONASS MEO & Tundra/Molniya relay.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h3 class="text-cyan-300 font-mono font-semibold text-xs uppercase tracking-wider mb-1.5">4. Topocentric Observer Horizon & Doppler Telemetry</h3>
+          <p>
+            From the Vancouver Ground Station reference ($\phi_0 = 49.2827^\circ\text{N}, \lambda_0 = 123.1207^\circ\text{W}$), topocentric South-East-Zenith (SEZ) look angles—Azimuth ($Az$), Elevation ($El$), and Slant Range ($\rho$)—are evaluated alongside radial range-rate ($\dot{\rho}$) to derive S-band/Ka-band relativistic Doppler frequency shift ($\Delta f = -f_0 \frac{\dot{\rho}}{c}$).
+          </p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APPLICATION ENGINE -->
+  <script>
+    /**
+     * AETHER-3500 ORBITAL CONSTELLATION TELEMETRY SYSTEM
+     * Single-file SGP4 Propagation + WebGL 3D Spherical Projection + Virtualized 21-Attribute Matrix
+     */
+    (function () {
+      'use strict';
+
+      // =========================================================================
+      // 1. CONSTELLATION DEFINITIONS & OBSERVER CONFIGURATION (TOTAL = 3,500)
+      // =========================================================================
+      const OBSERVER_GD = {
+        latitude: satellite.degreesToRadians(49.2827),  // Vancouver, BC
+        longitude: satellite.degreesToRadians(-123.1207),
+        height: 0.05 // km
+      };
+
+      const CONSTELLATION_SPECS = [
+        { name: 'Starlink / Starlynx', prefix: 'STARLYNX', count: 1250, colorHex: '#00f0ff', rgb: [0.0, 0.94, 1.0], regime: 'LEO', altMin: 530, altMax: 575, incBase: 53.2, eccMax: 0.0018 },
+        { name: 'NASA',                prefix: 'NASA-EOS', count: 320,  colorHex: '#3b82f6', rgb: [0.23, 0.51, 0.96], regime: 'LEO-SSO', altMin: 680, altMax: 740, incBase: 98.2, eccMax: 0.0012 },
+        { name: 'Telus',               prefix: 'TELUS-SAT',count: 240,  colorHex: '#10b981', rgb: [0.06, 0.73, 0.51], regime: 'LEO-POLAR', altMin: 780, altMax: 850, incBase: 86.4, eccMax: 0.0020 },
+        { name: 'Rogers',              prefix: 'ROGERS',   count: 240,  colorHex: '#ef4444', rgb: [0.94, 0.27, 0.27], regime: 'LEO-HYBRID', altMin: 610, altMax: 1100, incBase: 68.0, eccMax: 0.0025 },
+        { name: 'Bell',                prefix: 'BELL-LS',  count: 250,  colorHex: '#60a5fa', rgb: [0.38, 0.65, 0.98], regime: 'LEO-MESH', altMin: 1015, altMax: 1325, incBase: 50.9, eccMax: 0.0015 },
+        { name: 'Godiousa',            prefix: 'GODIOUSA', count: 420,  colorHex: '#f59e0b', rgb: [0.96, 0.62, 0.04], regime: 'MEO-PNT', altMin: 19800, altMax: 20400, incBase: 55.0, eccMax: 0.0085 },
+        { name: 'Huawei / Huwiea',     prefix: 'HUWIEA',   count: 380,  colorHex: '#f43f5e', rgb: [0.96, 0.25, 0.37], regime: 'LEO-IOT', altMin: 590, altMax: 650, incBase: 42.5, eccMax: 0.0016 },
+        { name: 'Russian Nostrous',    prefix: 'NOSTROUS', count: 400,  colorHex: '#a855f7', rgb: [0.66, 0.33, 0.97], regime: 'MEO-GLONASS', altMin: 19100, altMax: 19200, incBase: 64.8, eccMax: 0.0045 }
+      ];
+
+      const EARTH_RADIUS_KM = 6378.137;
+      const SCENE_EARTH_RADIUS = 10.0; // 3D unit sphere radius
+      const HIGHLIGHT_RGB = [1.0, 0.165, 0.52]; // #ff2a85 High-Contrast Active Beacon
+
+      // =========================================================================
+      // 2. SYNTHETIC TLE GENERATOR & SATELLITE REGISTRY (3,500 SPACECRAFT)
+      // =========================================================================
+      const satellites = [];
+      let filteredSatellites = [];
+      let selectedSatIndex = -1; // Global index in `satellites`
+      let activeConstellationFilter = 'ALL';
+      let searchQuery = '';
+      let propagationCycle = 0;
+
+      // Deterministic pseudo-random helper for reproducible Walker constellation shells
+      function seededRandom(seed) {
+        const x = Math.sin(seed * 9999.91) * 10000;
+        return x - Math.floor(x);
+      }
+
+      // Format TLE checksum (Modulo 10)
+      function computeTLEChecksum(line) {
+        let sum = 0;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch >= '0' && ch <= '9') sum += parseInt(ch, 10);
+          else if (ch === '-') sum += 1;
+        }
+        return (sum % 10).toString();
+      }
+
+      function padZero(num, size) {
+        let s = String(num);
+        while (s.length < size) s = '0' + s;
+        return s;
+      }
+
+      function formatTLEAngle(deg) {
+        const val = ((deg % 360) + 360) % 360;
+        return val.toFixed(4).padStart(8, ' ');
+      }
+
+      function buildCatalogAndTLEs() {
+        let globalIdx = 0;
+        let noradBase = 50001;
+
+        // Use current epoch year & day-of-year for realistic SGP4 propagation
+        const now = new Date();
+        const year2 = String(now.getUTCFullYear()).slice(-2);
+        const startOfYear = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+        const doy = ((now - startOfYear) / 86400000) + 1;
+        const epochStr = `${year2}${doy.toFixed(8).padStart(12, '0')}`;
+
+        CONSTELLATION_SPECS.forEach((spec, cIdx) => {
+          const planes = Math.max(8, Math.floor(Math.sqrt(spec.count)));
+          for (let i = 0; i < spec.count; i++) {
+            const noradId = noradBase + globalIdx;
+            const planeIdx = i % planes;
+            const slotIdx = Math.floor(i / planes);
+            const slotsPerPlane = Math.ceil(spec.count / planes);
+
+            // Walker-Delta orbital distribution
+            const r1 = seededRandom(globalIdx + 11);
+            const r2 = seededRandom(globalIdx + 37);
+            const altKm = spec.altMin + r1 * (spec.altMax - spec.altMin);
+            const semiMajorAxis = EARTH_RADIUS_KM + altKm;
+            
+            // Mean motion in revolutions per day: n = sqrt(mu / a^3) * 86400 / (2*pi)
+            const mu = 398600.4418;
+            const meanMotionRevDay = Math.sqrt(mu / Math.pow(semiMajorAxis, 3)) * 86400 / (2 * Math.PI);
+
+            const incDeg = spec.incBase + (r2 - 0.5) * 3.2;
+            const raanDeg = (planeIdx * (360 / planes) + (cIdx * 17)) % 360;
+            const ecc = 0.0001 + r1 * spec.eccMax;
+            const eccStr = ecc.toFixed(7).substring(2); // 7 digits without decimal
+            const argPerigeeDeg = (slotIdx * 13.7 + r2 * 45) % 360;
+            const meanAnomalyDeg = ((slotIdx * (360 / slotsPerPlane)) + (planeIdx * 11.5)) % 360;
+
+            const noradStr = padZero(noradId, 5);
+            const launchYr = 21 + (globalIdx % 6);
+            const launchNum = padZero((globalIdx % 240) + 1, 3);
+            const piece = String.fromCharCode(65 + (globalIdx % 26));
+            const cosparId = `20${launchYr}-${launchNum}${piece}`;
+            const intlDesigTLE = `${launchYr}${launchNum}${piece}  `.slice(0, 8);
+
+            // Construct authentic 69-character TLE Line 1 & Line 2
+            let line1Raw = `1 ${noradStr}U ${intlDesigTLE} ${epochStr}  .00001234  00000-0  12345-4 0  999`;
+            line1Raw = line1Raw.slice(0, 68);
+            const line1 = line1Raw + computeTLEChecksum(line1Raw);
+
+            let line2Raw = `2 ${noradStr} ${formatTLEAngle(incDeg)} ${formatTLEAngle(raanDeg)} ${eccStr} ${formatTLEAngle(argPerigeeDeg)} ${formatTLEAngle(meanAnomalyDeg)} ${meanMotionRevDay.toFixed(8).padStart(11, ' ')}00100`;
+            line2Raw = line2Raw.slice(0, 68);
+            const line2 = line2Raw + computeTLEChecksum(line2Raw);
+
+            const satrec = satellite.twoline2satrec(line1, line2);
+
+            const periodMin = 1440 / meanMotionRevDay;
+            const apogeeKm = semiMajorAxis * (1 + ecc) - EARTH_RADIUS_KM;
+            const perigeeKm = semiMajorAxis * (1 - ecc) - EARTH_RADIUS_KM;
+
+            satellites.push({
+              index: globalIdx,
+              noradId: noradId,
+              cosparId: cosparId,
+              name: `${spec.prefix}-${padZero(i + 1, 4)}`,
+              constellation: spec.name,
+              colorHex: spec.colorHex,
+              rgb: spec.rgb,
+              regime: spec.regime,
+              satrec: satrec,
+              // Static / Keplerian Mean Elements (Attributes 10-18)
+              inclination: incDeg.toFixed(3),
+              raan: raanDeg.toFixed(3),
+              eccentricity: ecc.toFixed(6),
+              argPerigee: argPerigeeDeg.toFixed(3),
+              meanAnomaly: meanAnomalyDeg.toFixed(3),
+              meanMotion: meanMotionRevDay.toFixed(6),
+              periodMin: periodMin.toFixed(2),
+              apogeeKm: apogeeKm.toFixed(1),
+              perigeeKm: perigeeKm.toFixed(1),
+              // Live Propagated State (Attributes 6-9, 19-21)
+              latDeg: 0,
+              lonDeg: 0,
+              altKm: altKm,
+              velocityKmS: 0,
+              azimuthDeg: 0,
+              elevationDeg: 0,
+              slantRangeKm: 0,
+              dopplerKhz: 0,
+              status: 'NOMINAL',
+              // 3D Cartesian Scene Coordinates
+              x: 0,
+              y: 0,
+              z: 0
+            });
+
+            globalIdx++;
+          }
+        });
+      }
+
+      // =========================================================================
+      // 3. REAL-TIME SGP4 PROPAGATION ENGINE (RUNS EVERY 11 SECONDS)
+      // =========================================================================
+      function propagateAllSatellites() {
+        const now = new Date();
+        const gmst = satellite.gstime(now);
+        propagationCycle++;
+
+        document.getElementById('utc-clock').textContent = now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+        document.getElementById('epoch-counter').textContent = `PROPAGATION CYCLE #${propagationCycle}`;
+
+        for (let i = 0; i < satellites.length; i++) {
+          const sat = satellites[i];
+          const posVel = satellite.propagate(sat.satrec, now);
+
+          if (posVel && posVel.position && typeof posVel.position.x === 'number') {
+            const posEci = posVel.position;
+            const velEci = posVel.velocity;
+
+            // ECI -> Geodetic (WGS-84)
+            const gd = satellite.eciToGeodetic(posEci, gmst);
+            const latDeg = satellite.degreesLat(gd.latitude);
+            const lonDeg = satellite.degreesLong(gd.longitude);
+            const altKm = gd.height;
+
+            // Orbital Speed magnitude (km/s)
+            const speed = Math.sqrt(velEci.x * velEci.x + velEci.y * velEci.y + velEci.z * velEci.z);
+
+            // Topocentric Look Angles from Vancouver Observer
+            const posEcf = satellite.eciToEcf(posEci, gmst);
+            const lookAngles = satellite.ecfToLookAngles(OBSERVER_GD, posEcf);
+            const azDeg = satellite.radiansToDegrees(lookAngles.azimuth);
+            const elDeg = satellite.radiansToDegrees(lookAngles.elevation);
+            const rangeKm = lookAngles.rangeSat;
+
+            // Approximate Ka-band (20 GHz) Doppler Shift from velocity projection
+            const dopplerKhz = ((speed * Math.cos(lookAngles.elevation)) / 299792.458) * 20000 * (elDeg > 0 ? 1 : -1);
+
+            sat.latDeg = latDeg;
+            sat.lonDeg = lonDeg;
+            sat.altKm = altKm;
+            sat.velocityKmS = speed;
+            sat.azimuthDeg = azDeg;
+            sat.elevationDeg = elDeg;
+            sat.slantRangeKm = rangeKm;
+            sat.dopplerKhz = dopplerKhz;
+            sat.status = elDeg > 5 ? 'IN-VIEW / LOCKED' : 'OVER-HORIZON';
+
+            // Convert Geodetic Lat/Lon/Alt to 3D Spherical Visual Coordinates
+            // Compressed altitude scaling so LEO, MEO, and GEO shells remain clearly legible around the sphere
+            const visualAltOffset = altKm < 2000
+              ? 0.35 + (altKm / 2000) * 0.95
+              : 1.3 + Math.log10(altKm / 2000) * 2.1;
+
+            const r = SCENE_EARTH_RADIUS + visualAltOffset;
+            const phi = (90 - latDeg) * (Math.PI / 180);
+            const theta = (lonDeg + 180) * (Math.PI / 180);
+
+            sat.x = -r * Math.sin(phi) * Math.cos(theta);
+            sat.y = r * Math.cos(phi);
+            sat.z = r * Math.sin(phi) * Math.sin(theta);
+          }
+        }
+
+        // Sync 3D BufferGeometry positions & colors
+        updateThreeJSBuffers();
+
+        // Refresh visible side panel cards & active pop-up without losing scroll position
+        renderVisibleVirtualRows();
+        if (selectedSatIndex !== -1) {
+          populatePopupData(satellites[selectedSatIndex]);
+        }
+      }
+
+      // =========================================================================
+      // 4. THREE.JS 3D SPHERICAL EARTH, GRID & 3,500 INTERACTIVE DOTS
+      // =========================================================================
+      let scene, camera, renderer, globeGroup, satPoints, satGeometry, beaconMesh, shellsGroup;
+      let targetRotX = 0.32, targetRotY = -0.5;
+      let currentRotX = 0.32, currentRotY = -0.5;
+      let cameraDistance = 28;
+      let targetCameraDistance = 28;
+      let autoRotate = true;
+      let isInverted = false;
+      let isDragging = false;
+      let dragStartX = 0, dragStartY = 0;
+      let mouseDownPos = { x: 0, y: 0 };
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.params.Points.threshold = 0.32;
+      const pointerNDC = new THREE.Vector2();
+
+      function initThreeJS() {
+        const container = document.getElementById('globe-container');
+        const canvas = document.getElementById('orbital-canvas');
+
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x03060c, 0.011);
+
+        camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 500);
+        camera.position.set(0, 0, cameraDistance);
+
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // Ambient & Directional Rim Lighting
+        const ambientLight = new THREE.AmbientLight(0x334155, 1.4);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0x38bdf8, 1.6);
+        dirLight.position.set(25, 20, 30);
+        scene.add(dirLight);
+
+        // Background Starfield
+        const starGeo = new THREE.BufferGeometry();
+        const starVerts = [];
+        for (let i = 0; i < 1800; i++) {
+          const r = 110 + Math.random() * 140;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          starVerts.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+        }
+        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+        const starMat = new THREE.PointsMaterial({ color: 0x64748b, size: 0.35, transparent: true, opacity: 0.7 });
+        scene.add(new THREE.Points(starGeo, starMat));
+
+        // Master Rotating Spherical Group
+        globeGroup = new THREE.Group();
+        scene.add(globeGroup);
+
+        // 1. Core Obsidian Planetary Sphere
+        const earthGeo = new THREE.SphereGeometry(SCENE_EARTH_RADIUS - 0.08, 64, 64);
+        const earthMat = new THREE.MeshPhongMaterial({
+          color: 0x061021,
+          emissive: 0x040b18,
+          specular: 0x0ea5e9,
+          shininess: 22
+        });
+        globeGroup.add(new THREE.Mesh(earthGeo, earthMat));
+
+        // 2. Gridded Latitude / Longitude Wireframe Mesh on Sphere
+        const gridGroup = new THREE.Group();
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.16 });
+        const equatorMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.42 });
+
+        // Latitude parallels every 15 degrees
+        for (let lat = -75; lat <= 75; lat += 15) {
+          const phi = (90 - lat) * (Math.PI / 180);
+          const r = SCENE_EARTH_RADIUS * Math.sin(phi);
+          const y = SCENE_EARTH_RADIUS * Math.cos(phi);
+          const pts = [];
+          for (let lon = 0; lon <= 360; lon += 4) {
+            const theta = lon * (Math.PI / 180);
+            pts.push(new THREE.Vector3(-r * Math.cos(theta), y, r * Math.sin(theta)));
+          }
+          const geo = new THREE.BufferGeometry().setFromPoints(pts);
+          gridGroup.add(new THREE.Line(geo, lat === 0 ? equatorMat : lineMat));
+        }
+
+        // Longitude meridians every 15 degrees
+        for (let lon = 0; lon < 360; lon += 15) {
+          const theta = lon * (Math.PI / 180);
+          const pts = [];
+          for (let lat = -90; lat <= 90; lat += 4) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const r = SCENE_EARTH_RADIUS * Math.sin(phi);
+            const y = SCENE_EARTH_RADIUS * Math.cos(phi);
+            pts.push(new THREE.Vector3(-r * Math.cos(theta), y, r * Math.sin(theta)));
+          }
+          const geo = new THREE.BufferGeometry().setFromPoints(pts);
+          gridGroup.add(new THREE.Line(geo, lon === 0 ? equatorMat : lineMat));
+        }
+        globeGroup.add(gridGroup);
+
+        // 3. Orbital Altitude Shells (LEO & MEO Wire Rings)
+        shellsGroup = new THREE.Group();
+        [10.62, 13.4].forEach((shellRadius, idx) => {
+          const ringGeo = new THREE.RingGeometry(shellRadius - 0.02, shellRadius + 0.02, 128);
+          const ringMat = new THREE.MeshBasicMaterial({
+            color: idx === 0 ? 0x00f0ff : 0xf59e0b,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.14
+          });
+          const ring1 = new THREE.Mesh(ringGeo, ringMat);
+          ring1.rotation.x = Math.PI / 2;
+          const ring2 = ring1.clone();
+          ring2.rotation.x = Math.PI / 3.4;
+          shellsGroup.add(ring1, ring2);
+        });
+        globeGroup.add(shellsGroup);
+
+        // 4. Circular Sprite Texture for Crisp Satellite Dots
+        const dotCanvas = document.createElement('canvas');
+        dotCanvas.width = 64;
+        dotCanvas.height = 64;
+        const dCtx = dotCanvas.getContext('2d');
+        const grad = dCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.45, 'rgba(255,255,255,0.85)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        dCtx.fillStyle = grad;
+        dCtx.fillRect(0, 0, 64, 64);
+        const dotTexture = new THREE.CanvasTexture(dotCanvas);
+
+        // 5. BufferGeometry for all 3,500 Satellite Nodes
+        satGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(satellites.length * 3);
+        const colors = new Float32Array(satellites.length * 3);
+
+        satGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        satGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const satMaterial = new THREE.PointsMaterial({
+          size: 0.34,
+          map: dotTexture,
+          vertexColors: true,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        });
+
+        satPoints = new THREE.Points(satGeometry, satMaterial);
+        globeGroup.add(satPoints);
+
+        // 6. Active Selection Highlight Beacon Sphere + Orbital Ring
+        const beaconGeo = new THREE.SphereGeometry(0.24, 16, 16);
+        const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2a85 });
+        beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+        beaconMesh.visible = false;
+
+        const haloGeo = new THREE.RingGeometry(0.32, 0.45, 32);
+        const haloMat = new THREE.MeshBasicMaterial({ color: 0xff2a85, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+        const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+        beaconMesh.add(haloMesh);
+        globeGroup.add(beaconMesh);
+
+        // Resize Listener
+        window.addEventListener('resize', onWindowResize);
+      }
+
+      function updateThreeJSBuffers() {
+        if (!satGeometry) return;
+        const posAttr = satGeometry.attributes.position.array;
+        const colAttr = satGeometry.attributes.color.array;
+        let visibleCounter = 0;
+
+        for (let i = 0; i < satellites.length; i++) {
+          const sat = satellites[i];
+          const matchesConst = activeConstellationFilter === 'ALL' || sat.constellation === activeConstellationFilter;
+          const matchesSearch = !searchQuery ||
+            sat.name.toLowerCase().includes(searchQuery) ||
+            String(sat.noradId).includes(searchQuery) ||
+            sat.cosparId.toLowerCase().includes(searchQuery) ||
+            sat.regime.toLowerCase().includes(searchQuery);
+
+          const isVisible = matchesConst && matchesSearch;
+
+          if (isVisible || i === selectedSatIndex) {
+            posAttr[i * 3] = sat.x;
+            posAttr[i * 3 + 1] = sat.y;
+            posAttr[i * 3 + 2] = sat.z;
+            visibleCounter++;
+          } else {
+            // Park filtered-out nodes at origin inside core sphere
+            posAttr[i * 3] = 0;
+            posAttr[i * 3 + 1] = 0;
+            posAttr[i * 3 + 2] = 0;
+          }
+
+          if (i === selectedSatIndex) {
+            colAttr[i * 3] = HIGHLIGHT_RGB[0];
+            colAttr[i * 3 + 1] = HIGHLIGHT_RGB[1];
+            colAttr[i * 3 + 2] = HIGHLIGHT_RGB[2];
+          } else {
+            colAttr[i * 3] = sat.rgb[0];
+            colAttr[i * 3 + 1] = sat.rgb[1];
+            colAttr[i * 3 + 2] = sat.rgb[2];
+          }
+        }
+
+        satGeometry.attributes.position.needsUpdate = true;
+        satGeometry.attributes.color.needsUpdate = true;
+        document.getElementById('hud-visible-count').textContent = visibleCounter.toLocaleString();
+
+        if (selectedSatIndex !== -1) {
+          const sel = satellites[selectedSatIndex];
+          beaconMesh.position.set(sel.x, sel.y, sel.z);
+          beaconMesh.visible = true;
+        } else {
+          beaconMesh.visible = false;
+        }
+      }
+
+      function onWindowResize() {
+        const container = document.getElementById('globe-container');
+        if (!container || !renderer) return;
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      }
+
+      // =========================================================================
+      // 5. SPHERICAL INTERACTION, RAYCAST CLICKING & FLOATING POP-UP ANCHORING
+      // =========================================================================
+      function setupGlobeControls() {
+        const canvas = document.getElementById('orbital-canvas');
+
+        canvas.addEventListener('pointerdown', (e) => {
+          isDragging = true;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          mouseDownPos = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('pointermove', (e) => {
+          if (!isDragging) return;
+          const dx = e.clientX - dragStartX;
+          const dy = e.clientY - dragStartY;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+
+          targetRotY += dx * 0.0065;
+          targetRotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, targetRotX + dy * 0.0065));
+        });
+
+        window.addEventListener('pointerup', (e) => {
+          if (!isDragging) return;
+          isDragging = false;
+          const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
+          if (dist < 5) {
+            handleCanvasClick(e);
+          }
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          targetCameraDistance = Math.max(14.5, Math.min(55, targetCameraDistance + e.deltaY * 0.015));
+        }, { passive: false });
+
+        // HUD Directional Buttons
+        document.getElementById('rot-up').addEventListener('click', () => { targetRotX = Math.max(-Math.PI / 2, targetRotX - 0.25); });
+        document.getElementById('rot-down').addEventListener('click', () => { targetRotX = Math.min(Math.PI / 2, targetRotX + 0.25); });
+        document.getElementById('rot-left').addEventListener('click', () => { targetRotY -= 0.35; });
+        document.getElementById('rot-right').addEventListener('click', () => { targetRotY += 0.35; });
+        document.getElementById('rot-invert').addEventListener('click', () => {
+          isInverted = !isInverted;
+          targetRotX = -targetRotX;
+          targetRotY += Math.PI;
+        });
+
+        document.getElementById('zoom-in').addEventListener('click', () => { targetCameraDistance = Math.max(14.5, targetCameraDistance - 3.5); });
+        document.getElementById('zoom-out').addEventListener('click', () => { targetCameraDistance = Math.min(55, targetCameraDistance + 3.5); });
+
+        document.getElementById('toggle-autorotate').addEventListener('click', (e) => {
+          autoRotate = !autoRotate;
+          e.target.textContent = `AUTO-SPIN: ${autoRotate ? 'ON' : 'OFF'}`;
+          e.target.classList.toggle('bg-cyan-500/20', autoRotate);
+          e.target.classList.toggle('text-cyan-300', autoRotate);
+        });
+
+        document.getElementById('toggle-shells').addEventListener('click', (e) => {
+          shellsGroup.visible = !shellsGroup.visible;
+          e.target.textContent = `SHELLS: ${shellsGroup.visible ? 'ON' : 'OFF'}`;
+        });
+
+        document.getElementById('reset-view').addEventListener('click', () => {
+          targetRotX = 0.32;
+          targetRotY = -0.5;
+          targetCameraDistance = 28;
+          isInverted = false;
+        });
+
+        document.getElementById('btn-close-popup').addEventListener('click', () => {
+          selectedSatIndex = -1;
+          document.getElementById('sat-popup').classList.add('hidden');
+          updateThreeJSBuffers();
+          renderVisibleVirtualRows();
+        });
+
+        document.getElementById('btn-locate-in-panel').addEventListener('click', () => {
+          if (selectedSatIndex === -1) return;
+          scrollSidePanelToSatellite(selectedSatIndex);
+        });
+      }
+
+      function handleCanvasClick(event) {
+        const canvas = document.getElementById('orbital-canvas');
+        const rect = canvas.getBoundingClientRect();
+        pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(pointerNDC, camera);
+        const intersects = raycaster.intersectObject(satPoints);
+
+        if (intersects.length > 0) {
+          // Pick closest valid visible satellite
+          for (let i = 0; i < intersects.length; i++) {
+            const idx = intersects[i].index;
+            const sat = satellites[idx];
+            if (sat && (sat.x !== 0 || sat.y !== 0 || sat.z !== 0)) {
+              selectSatellite(idx, false);
+              break;
+            }
+          }
+        }
+      }
+
+      function selectSatellite(satIndex, rotateGlobeToFocus = true) {
+        selectedSatIndex = satIndex;
+        const sat = satellites[satIndex];
+        if (!sat) return;
+
+        // Change dot color on sphere to active pink-magenta beacon & position halo
+        updateThreeJSBuffers();
+
+        // Smoothly orient globe so the clicked/selected satellite faces the camera
+        if (rotateGlobeToFocus) {
+          autoRotate = false;
+          const autoBtn = document.getElementById('toggle-autorotate');
+          autoBtn.textContent = 'AUTO-SPIN: OFF';
+          autoBtn.classList.remove('bg-cyan-500/20', 'text-cyan-300');
+
+          const theta = Math.atan2(sat.x, sat.z);
+          const rHoriz = Math.hypot(sat.x, sat.z);
+          const phi = Math.atan2(sat.y, rHoriz);
+          targetRotY = -theta;
+          targetRotX = phi;
+        }
+
+        // Populate and display floating pop-up card
+        populatePopupData(sat);
+        document.getElementById('sat-popup').classList.remove('hidden');
+
+        // Highlight row in side panel
+        renderVisibleVirtualRows();
+      }
+
+      function populatePopupData(sat) {
+        document.getElementById('pop-name').textContent = `${sat.name} (${sat.cosparId})`;
+        document.getElementById('pop-constellation').textContent = `${sat.constellation} • NORAD #${sat.noradId} • ${sat.regime}`;
+
+        const attrs = [
+          ['01. NORAD ID', `#${sat.noradId}`],
+          ['02. COSPAR ID', sat.cosparId],
+          ['03. NAME', sat.name],
+          ['04. OPERATOR', sat.constellation],
+          ['05. REGIME', sat.regime],
+          ['06. LATITUDE', `${sat.latDeg.toFixed(4)}°`],
+          ['07. LONGITUDE', `${sat.lonDeg.toFixed(4)}°`],
+          ['08. ALTITUDE', `${sat.altKm.toFixed(2)} km`],
+          ['09. VELOCITY', `${sat.velocityKmS.toFixed(3)} km/s`],
+          ['10. INCLINATION', `${sat.inclination}°`],
+          ['11. RAAN (Ω)', `${sat.raan}°`],
+          ['12. ECCENTRICITY', sat.eccentricity],
+          ['13. ARG PERIGEE', `${sat.argPerigee}°`],
+          ['14. MEAN ANOMALY', `${sat.meanAnomaly}°`],
+          ['15. MEAN MOTION', `${sat.meanMotion} rev/d`],
+          ['16. PERIOD', `${sat.periodMin} min`],
+          ['17. APOGEE', `${sat.apogeeKm} km`],
+          ['18. PERIGEE', `${sat.perigeeKm} km`],
+          ['19. AZIMUTH', `${sat.azimuthDeg.toFixed(2)}°`],
+          ['20. ELEVATION', `${sat.elevationDeg.toFixed(2)}°`],
+          ['21. RANGE/DOPPLER', `${sat.slantRangeKm.toFixed(0)}km / ${sat.dopplerKhz.toFixed(1)}kHz`]
+        ];
+
+        const grid = document.getElementById('pop-attributes-grid');
+        grid.innerHTML = attrs.map(([k, v]) => `
+          <div class="flex justify-between border-b border-slate-800/80 pb-0.5">
+            <span class="text-slate-400 truncate pr-1">${k}</span>
+            <span class="text-slate-100 font-semibold tabular-nums truncate">${v}</span>
+          </div>
+        `).join('');
+      }
+
+      // Project 3D world position of selected satellite onto 2D screen space to anchor pop-up
+      function updatePopupScreenAnchor() {
+        if (selectedSatIndex === -1) return;
+        const popup = document.getElementById('sat-popup');
+        if (popup.classList.contains('hidden')) return;
+
+        const container = document.getElementById('globe-container');
+        const worldPos = new THREE.Vector3();
+        beaconMesh.getWorldPosition(worldPos);
+        worldPos.project(camera);
+
+        const halfW = container.clientWidth / 2;
+        const halfH = container.clientHeight / 2;
+        let screenX = (worldPos.x * halfW) + halfW + 18;
+        let screenY = -(worldPos.y * halfH) + halfH - 40;
+
+        // Clamp within globe viewport bounds so pop-up is always legible
+        const popW = popup.offsetWidth || 340;
+        const popH = popup.offsetHeight || 280;
+        screenX = Math.max(12, Math.min(container.clientWidth - popW - 12, screenX));
+        screenY = Math.max(54, Math.min(container.clientHeight - popH - 54, screenY));
+
+        popup.style.left = `${screenX}px`;
+        popup.style.top = `${screenY}px`;
+      }
+
+      // =========================================================================
+      // 6. VIRTUALIZED SCROLLABLE SIDE PANEL (ALL 21 ATTRIBUTES PER SATELLITE)
+      // =========================================================================
+      const ITEM_HEIGHT = 236; // Fixed height per comprehensive 21-attribute card for silky 60fps virtual scrolling
+      const viewportEl = document.getElementById('sat-list-viewport');
+      const spacerEl = document.getElementById('sat-list-spacer');
+      const itemsContainerEl = document.getElementById('sat-list-items');
+
+      function applyFilters() {
+        filteredSatellites = satellites.filter((sat) => {
+          const matchesConst = activeConstellationFilter === 'ALL' || sat.constellation === activeConstellationFilter;
+          if (!matchesConst) return false;
+          if (!searchQuery) return true;
+          return (
+            sat.name.toLowerCase().includes(searchQuery) ||
+            String(sat.noradId).includes(searchQuery) ||
+            sat.cosparId.toLowerCase().includes(searchQuery) ||
+            sat.constellation.toLowerCase().includes(searchQuery) ||
+            sat.regime.toLowerCase().includes(searchQuery)
+          );
+        });
+
+        document.getElementById('panel-count-badge').textContent = `${filteredSatellites.length.toLocaleString()} SATELLITES`;
+        spacerEl.style.height = `${filteredSatellites.length * ITEM_HEIGHT}px`;
+        viewportEl.scrollTop = 0;
+
+        updateThreeJSBuffers();
+        renderVisibleVirtualRows();
+      }
+
+      function renderVisibleVirtualRows() {
+        const scrollTop = viewportEl.scrollTop;
+        const viewHeight = viewportEl.clientHeight || 600;
+
+        const startIdx = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - 2);
+        const endIdx = Math.min(filteredSatellites.length - 1, Math.ceil((scrollTop + viewHeight) / ITEM_HEIGHT) + 2);
+
+        itemsContainerEl.style.transform = `translateY(${startIdx * ITEM_HEIGHT}px)`;
+
+        let html = '';
+        for (let i = startIdx; i <= endIdx; i++) {
+          const sat = filteredSatellites[i];
+          const isSelected = sat.index === selectedSatIndex;
+
+          html += `
+            <div data-sat-index="${sat.index}" style="height: ${ITEM_HEIGHT - 10}px;" class="sat-row-card hud-card ${isSelected ? 'active-sat' : ''} rounded-xl p-2.5 cursor-pointer flex flex-col justify-between overflow-hidden">
+              <!-- Card Header: Attributes 1, 2, 3, 4, 5 -->
+              <div class="flex items-center justify-between border-b border-slate-800/90 pb-1.5">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${isSelected ? '#ff2a85' : sat.colorHex}; box-shadow: 0 0 8px ${isSelected ? '#ff2a85' : sat.colorHex};"></span>
+                  <span class="font-mono font-bold text-xs text-white truncate">${sat.name}</span>
+                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 shrink-0">#${sat.noradId}</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-[10px] font-mono shrink-0">
+                  <span class="text-slate-400">${sat.cosparId}</span>
+                  <span class="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">${sat.regime}</span>
+                </div>
+              </div>
+
+              <!-- Operator & Live Status Banner -->
+              <div class="flex items-center justify-between text-[10px] font-mono py-0.5">
+                <span class="font-semibold" style="color: ${sat.colorHex};">04. CONSTELLATION: ${sat.constellation.toUpperCase()}</span>
+                <span class="${sat.elevationDeg > 5 ? 'text-emerald-400' : 'text-slate-500'}">${sat.status}</span>
+              </div>
+
+              <!-- 3-Column Dense Telemetry Grid Covering All Remaining 21 Attributes -->
+              <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-[10px] font-mono tabular-nums pt-0.5">
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">06.LAT:</span> <span class="text-slate-200">${sat.latDeg.toFixed(2)}°</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">07.LON:</span> <span class="text-slate-200">${sat.lonDeg.toFixed(2)}°</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">08.ALT:</span> <span class="text-cyan-300">${sat.altKm.toFixed(1)}km</span></div>
+
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">09.VEL:</span> <span class="text-slate-200">${sat.velocityKmS.toFixed(2)}km/s</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">10.INC:</span> <span class="text-slate-200">${sat.inclination}°</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">11.RAAN:</span> <span class="text-slate-200">${sat.raan}°</span></div>
+
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">12.ECC:</span> <span class="text-slate-200">${sat.eccentricity}</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">13.ARGP:</span> <span class="text-slate-200">${sat.argPerigee}°</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">14.MA:</span> <span class="text-slate-200">${sat.meanAnomaly}°</span></div>
+
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">15.MM:</span> <span class="text-slate-200">${Number(sat.meanMotion).toFixed(2)}/d</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">16.PER:</span> <span class="text-slate-200">${sat.periodMin}m</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">17.APO:</span> <span class="text-slate-200">${sat.apogeeKm}km</span></div>
+
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">18.PERI:</span> <span class="text-slate-200">${sat.perigeeKm}km</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">19.AZ:</span> <span class="text-amber-300">${sat.azimuthDeg.toFixed(1)}°</span></div>
+                <div class="bg-slate-950/60 px-1.5 py-0.5 rounded"><span class="text-slate-500">20.EL:</span> <span class="text-amber-300">${sat.elevationDeg.toFixed(1)}°</span></div>
+              </div>
+
+              <!-- Bottom Row: Attribute 21 (Slant Range & Doppler Shift) -->
+              <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-0.5 border-t border-slate-800/60">
+                <span>21. SLANT RANGE: <strong class="text-slate-200">${sat.slantRangeKm.toFixed(1)} km</strong></span>
+                <span>DOPPLER: <strong class="text-cyan-300">${sat.dopplerKhz >= 0 ? '+' : ''}${sat.dopplerKhz.toFixed(2)} kHz</strong></span>
+              </div>
+            </div>
+          `;
+        }
+
+        itemsContainerEl.innerHTML = html;
+      }
+
+      function scrollSidePanelToSatellite(satIndex) {
+        const filteredPos = filteredSatellites.findIndex((s) => s.index === satIndex);
+        if (filteredPos !== -1) {
+          viewportEl.scrollTo({
+            top: Math.max(0, filteredPos * ITEM_HEIGHT - 40),
+            behavior: 'smooth'
+          });
+        }
+      }
+
+      // =========================================================================
+      // 7. EVENT LISTENERS & 11-SECOND AUTOMATED PROPAGATION TIMER
+      // =========================================================================
+      function setupUIEvents() {
+        viewportEl.addEventListener('scroll', () => {
+          requestAnimationFrame(renderVisibleVirtualRows);
+        });
+
+        // Delegate click on any satellite card in the scrollable side panel
+        itemsContainerEl.addEventListener('click', (e) => {
+          const card = e.target.closest('.sat-row-card');
+          if (!card) return;
+          const satIdx = parseInt(card.getAttribute('data-sat-index'), 10);
+          if (!isNaN(satIdx)) {
+            selectSatellite(satIdx, true);
+          }
+        });
+
+        // Constellation filter buttons (Top-left overlay)
+        document.querySelectorAll('.const-filter-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.const-filter-btn').forEach((b) => {
+              b.classList.remove('active', 'bg-cyan-500/25', 'text-cyan-200', 'border-cyan-400/60');
+              b.classList.add('bg-slate-900/85', 'text-slate-300', 'border-slate-700/80');
+            });
+            btn.classList.add('active', 'bg-cyan-500/25', 'text-cyan-200', 'border-cyan-400/60');
+            btn.classList.remove('bg-slate-900/85', 'text-slate-300', 'border-slate-700/80');
+
+            activeConstellationFilter = btn.getAttribute('data-constellation');
+            document.getElementById('panel-const-select').value = activeConstellationFilter;
+            applyFilters();
+          });
+        });
+
+        // Constellation dropdown in side panel
+        document.getElementById('panel-const-select').addEventListener('change', (e) => {
+          activeConstellationFilter = e.target.value;
+          document.querySelectorAll('.const-filter-btn').forEach((btn) => {
+            const isMatch = btn.getAttribute('data-constellation') === activeConstellationFilter;
+            btn.classList.toggle('active', isMatch);
+            btn.classList.toggle('bg-cyan-500/25', isMatch);
+            btn.classList.toggle('text-cyan-200', isMatch);
+            btn.classList.toggle('border-cyan-400/60', isMatch);
+            btn.classList.toggle('bg-slate-900/85', !isMatch);
+            btn.classList.toggle('text-slate-300', !isMatch);
+          });
+          applyFilters();
+        });
+
+        // Search input
+        document.getElementById('sat-search-input').addEventListener('input', (e) => {
+          searchQuery = e.target.value.trim().toLowerCase();
+          applyFilters();
+        });
+
+        // Monograph Modal Controls
+        const modal = document.getElementById('theory-modal');
+        document.getElementById('btn-open-theory').addEventListener('click', () => modal.classList.remove('hidden'));
+        document.getElementById('btn-close-theory').addEventListener('click', () => modal.classList.add('hidden'));
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.classList.add('hidden');
+        });
+      }
+
+      // 11-Second Real-Time Telemetry Refresh Cycle
+      const REFRESH_INTERVAL_MS = 11000;
+      let lastPropagationTimestamp = performance.now();
+
+      function start11SecondTelemetryLoop() {
+        document.getElementById('btn-force-refresh').addEventListener('click', () => {
+          lastPropagationTimestamp = performance.now();
+          propagateAllSatellites();
+        });
+
+        setInterval(() => {
+          const nowPerf = performance.now();
+          const elapsed = nowPerf - lastPropagationTimestamp;
+          const remaining = Math.max(0, REFRESH_INTERVAL_MS - elapsed);
+
+          document.getElementById('countdown-text').textContent = `${(remaining / 1000).toFixed(1)}s`;
+          document.getElementById('countdown-bar').style.width = `${(remaining / REFRESH_INTERVAL_MS) * 100}%`;
+
+          if (elapsed >= REFRESH_INTERVAL_MS) {
+            lastPropagationTimestamp = nowPerf;
+            propagateAllSatellites();
+          }
+        }, 100);
+      }
+
+      // =========================================================================
+      // 8. 60FPS WEBGL RENDER LOOP
+      // =========================================================================
+      function animate() {
+        requestAnimationFrame(animate);
+
+        if (autoRotate && !isDragging) {
+          targetRotY += 0.0014;
+        }
+
+        // Smooth damping interpolation for spherical pitch, yaw & zoom
+        currentRotX += (targetRotX - currentRotX) * 0.09;
+        currentRotY += (targetRotY - currentRotY) * 0.09;
+        cameraDistance += (targetCameraDistance - cameraDistance) * 0.09;
+
+        globeGroup.rotation.x = currentRotX;
+        globeGroup.rotation.y = currentRotY;
+        camera.position.z = cameraDistance;
+
+        // Pulse active selection beacon
+        if (beaconMesh && beaconMesh.visible) {
+          const s = 1 + Math.sin(performance.now() * 0.008) * 0.28;
+          beaconMesh.scale.set(s, s, s);
+          beaconMesh.lookAt(camera.position);
+          updatePopupScreenAnchor();
+        }
+
+        const pitchDeg = (currentRotX * 180 / Math.PI).toFixed(1);
+        const yawDeg = (((currentRotY * 180 / Math.PI) % 360 + 360) % 360).toFixed(1);
+        document.getElementById('hud-attitude').textContent = `PITCH ${pitchDeg}° | YAW ${yawDeg}°${isInverted ? ' [INV]' : ''}`;
+
+        renderer.render(scene, camera);
+      }
+
+      // =========================================================================
+      // 9. BOOTSTRAP ON WINDOW LOAD
+      // =========================================================================
+      window.onload = function () {
+        buildCatalogAndTLEs();
+        initThreeJS();
+        setupGlobeControls();
+        setupUIEvents();
+        propagateAllSatellites();
+        applyFilters();
+        start11SecondTelemetryLoop();
+        animate();
+      };
+    })();
+  </script>
+</body>
+</html>
